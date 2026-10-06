@@ -1,19 +1,18 @@
-module.exports = async function callApi(url, options = {}) {
+module.exports = async function callApi(url, data = {}) {
 
     try {
 
         const response = await fetch(url, {
-            method: 'GET',
+            method: 'POST',
+
             headers: {
+                'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            ...options
+
+            body: JSON.stringify(data)
         });
 
-
-        /*
-         * Coba membaca JSON
-         */
 
         let result;
 
@@ -31,25 +30,18 @@ module.exports = async function callApi(url, options = {}) {
         }
 
 
-        /*
-         * HTTP error
-         */
-
         if (!response.ok) {
 
             return {
                 success: false,
                 message:
-                    result?.message ||
-                    `API error HTTP ${response.status}`
+                    typeof result?.message === 'string'
+                        ? result.message
+                        : `API error HTTP ${response.status}`
             };
 
         }
 
-
-        /*
-         * Validasi format response
-         */
 
         if (
             typeof result !== 'object' ||
@@ -60,15 +52,11 @@ module.exports = async function callApi(url, options = {}) {
 
             return {
                 success: false,
-                message: 'API mengembalikan format response yang tidak valid.'
+                message: 'Format response API tidak valid.'
             };
 
         }
 
-
-        /*
-         * Response valid
-         */
 
         return result;
 
@@ -76,8 +64,8 @@ module.exports = async function callApi(url, options = {}) {
     } catch (error) {
 
         console.error(
-            '[API ERROR]',
-            error
+            `[API ERROR] ${url}`,
+            error.message
         );
 
         return {

@@ -2,7 +2,10 @@ const db = require('../config/database');
 
 const callApi = require('./api');
 
-const { isAllowed } = require('./auth');
+const {
+    getApis,
+    isAllowed
+} = require('./config');
 
 
 module.exports = function (bot) {
@@ -35,32 +38,6 @@ module.exports = function (bot) {
 
 
     /*
-     * /ping
-     */
-
-    bot.command('ping', async (ctx) => {
-
-        try {
-
-            await saveChat(ctx);
-
-            await ctx.reply(
-                'Pong!'
-            );
-
-        } catch (error) {
-
-            console.error(
-                '[RESPONDER /ping]',
-                error
-            );
-
-        }
-
-    });
-
-
-    /*
      * /id
      */
 
@@ -70,12 +47,8 @@ module.exports = function (bot) {
 
             await saveChat(ctx);
 
-            const chatId = String(
-                ctx.chat.id
-            );
-
             await ctx.reply(
-                `Chat ID: ${chatId}`
+                `Chat ID: ${ctx.chat.id}`
             );
 
         } catch (error) {
@@ -91,73 +64,7 @@ module.exports = function (bot) {
 
 
     /*
-     * /status
-     *
-     * Command yang membutuhkan authorization
-     */
-
-    bot.command('status', async (ctx) => {
-
-        try {
-
-            await saveChat(ctx);
-
-
-            const chatId = String(
-                ctx.chat.id
-            );
-
-
-            /*
-             * Cek authorization
-             */
-
-            if (!isAllowed(chatId)) {
-
-                console.log(
-                    `[UNAUTHORIZED] ${chatId} -> /status`
-                );
-
-                return;
-            }
-
-
-            /*
-             * Panggil API
-             */
-
-            const result = await callApi(
-                process.env.API_SERVER_STATUS
-            );
-
-
-            /*
-             * Telegram hanya menerima message
-             */
-
-            await ctx.reply(
-                result.message
-            );
-
-
-        } catch (error) {
-
-            console.error(
-                '[RESPONDER /status]',
-                error
-            );
-
-            await ctx.reply(
-                'Terjadi kesalahan saat memproses perintah.'
-            );
-
-        }
-
-    });
-
-
-    /*
-     * Pesan masuk lainnya
+     * Semua command
      */
 
     bot.on('message', async (ctx) => {
@@ -169,15 +76,155 @@ module.exports = function (bot) {
             const text =
                 ctx.message?.text || '';
 
+
+            /*
+             * Bukan command
+             */
+
+            if (!text.startsWith('/')) {
+                return;
+            }
+
+
+            /*
+             * Ambil command
+             *
+             * /status
+             * menjadi:
+             * status
+             */
+
+            const command =
+                text
+                    .split(/\s+/)[0]
+                    .substring(1)
+                    .toLowerCase();
+
+
+            /*
+             * Abaikan command khusus
+             */
+
+            if (
+                command === 'start' ||
+                command === 'id'
+            ) {
+                return;
+            }
+
+
+            const chatId =
+                String(ctx.chat.id);
+
+
+            /*
+             * Ambil API berdasarkan
+             * Chat ID + command
+             */
+
+            const apis =
+                getApis(
+                    chatId,
+                    command
+                );
+
+
+            /*
+             * Tidak punya akses
+             */
+
+            if (
+                !Array.isArray(apis) ||
+                apis.length === 0
+            ) {
+
+                console.log(
+                    `[UNAUTHORIZED] ${chatId} -> /${command}`
+                );
+
+                return;
+            }
+
+
             console.log(
-                `[INCOMING] ${ctx.chat.id}: ${text}`
+                `[COMMAND] ${chatId} -> /${command}`
             );
+
+
+            /*
+             * Panggil semua API
+             */
+
+            const message =
+                text
+                    .replace(/^\/[^\s]+/, '')
+                    .trim();
+
+
+            const requestData = {
+                chat_id: chatId,
+                command: command,
+                message: message
+            };
+
+
+            const results =
+                await Promise.all(
+                    apis.map(
+                        api => callApi(
+                            api,
+                            requestData
+                        )
+                    )
+                );
+
+
+            /*
+             * Ambil message dari API
+             */
+
+            const messages =
+                results
+                    .map(result => result.message)
+                    .filter(
+                        message =>
+                            typeof message === 'string' &&
+                            message.trim() !== ''
+                    );
+
+
+            /*
+             * Tidak ada response
+             */
+
+            if (messages.length === 0) {
+
+                await ctx.reply(
+                    'Tidak ada response dari API.'
+                );
+
+                return;
+            }
+
+
+            /*
+             * Gabungkan response
+             */
+
+            await ctx.reply(
+                messages.join('\n')
+            );
+
 
         } catch (error) {
 
             console.error(
-                '[RESPONDER MESSAGE]',
+                '[RESPONDER]',
                 error
+            );
+
+            await ctx.reply(
+                'Terjadi kesalahan saat memproses perintah.'
             );
 
         }
@@ -188,14 +235,13 @@ module.exports = function (bot) {
 
 
 /*
- * Simpan informasi chat
+ * Simpan chat
  */
 
 async function saveChat(ctx) {
 
-    const chatId = String(
-        ctx.chat.id
-    );
+    const chatId =
+        String(ctx.chat.id);
 
     const username =
         ctx.from?.username || null;
